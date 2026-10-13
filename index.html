@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
+<meta name="description" content="Interactive simulation of a demand-responsive, energy-saving traffic signal by Ludovica Melodia.">
+<title>Smart Intersection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=Overpass+Mono:wght@400;600&display=swap">
+<style>
+  /* Layout: road-side control cabinet. Intersection scene on the left, run planner + energy meter on the right; stacks on phones. Deliberately dark single look (night roadway). */
+  :root{
+    color-scheme:dark;
+    --asphalt:#0F1216; --panel:#171B21; --panel2:#1F242C; --line:#2A3039;
+    --ink:#E9ECEF; --muted:#8F98A4; --faint:#5C6571;
+    --lit:#3FB6F5; --red:#E5433B; --amber:#F5A623; --green:#35C46A;
+    --conv:#d95926; --smart:#3987e5;
+    --sans:"Overpass",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:"Overpass Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{background:var(--asphalt);color:var(--ink);font-family:var(--sans);}
+  body{padding-inline:16px;padding-block:18px 28px;-webkit-font-smoothing:antialiased;font-size:14px;}
+  .wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:14px;}
+  h1,h2{text-wrap:balance;margin:0}
+  header.top{display:flex;align-items:baseline;gap:6px 14px;flex-wrap:wrap;}
+  header.top h1{font-size:22px;font-weight:800;letter-spacing:-.01em;}
+  header.top .sub{color:var(--muted);font-size:13px;}
+
+  .grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:16px;align-items:start;}
+  @media (max-width:920px){.grid{grid-template-columns:minmax(0,1fr);}}
+  .col{display:flex;flex-direction:column;gap:14px;min-width:0;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;}
+  .pad{padding:15px 17px;}
+  .lbl{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+  .hint{font-size:12px;color:var(--faint);}
+
+  /* status bar over the scene */
+  .status{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:11px 15px;border-bottom:1px solid var(--line);}
+  .clock{font-family:var(--mono);font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}
+  .pill{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;padding:4px 10px 3px;border-radius:999px;background:var(--panel2);color:var(--muted);border:1px solid var(--line);}
+  .pill .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);}
+  .pill.on{color:var(--ink);border-color:rgba(63,182,245,.5);}
+  .pill.on .dot{background:var(--lit);box-shadow:0 0 9px var(--lit);}
+  .status .right{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right;}
+  .prog{height:4px;background:var(--panel2);}
+  .prog i{display:block;height:100%;width:0;background:var(--lit);transition:width .2s linear;}
+  .stage{position:relative;overflow:hidden;background:#0B0E12;}
+  canvas{display:block;width:100%;height:auto;}
+  .legend{position:absolute;left:12px;bottom:11px;display:flex;gap:6px 13px;font-size:11px;color:var(--muted);
+    background:rgba(8,10,13,.68);padding:6px 10px;border-radius:8px;flex-wrap:wrap;max-width:calc(100% - 24px);}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .chip{width:10px;height:10px;border-radius:3px;display:inline-block;}
+  .done{position:absolute;inset:auto 12px 12px 12px;background:rgba(15,18,22,.94);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;}
+  .done h2{font-size:16px;font-weight:800;}
+  .done p{margin:0;color:var(--muted);font-size:13px;line-height:1.5;max-width:62ch;}
+  .done p b{color:var(--ink);font-weight:600;}
+
+  /* planner */
+  .field{display:flex;flex-direction:column;gap:7px;}
+  .seg{display:flex;flex-wrap:wrap;gap:6px;}
+  .seg button,.btn{font-family:var(--sans);font-size:13px;font-weight:600;color:var(--ink);background:var(--panel2);
+    border:1px solid var(--line);border-radius:7px;padding:7px 11px 6px;cursor:pointer;transition:border-color .15s,background .15s;}
+  .seg button:hover,.btn:hover{border-color:var(--faint);}
+  .seg button[aria-pressed="true"]{background:rgba(63,182,245,.14);border-color:var(--lit);color:var(--ink);}
+  .seg button small{font-weight:400;color:var(--muted);margin-left:4px;}
+  .btn.primary{background:var(--lit);border-color:var(--lit);color:#06131C;}
+  .btn:disabled{opacity:.45;cursor:default;}
+  button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--lit);outline-offset:2px;}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+  input[type=time]{font-family:var(--mono);font-size:15px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:6px 9px;}
+  .planner{display:flex;flex-direction:column;gap:15px;}
+  .dirty{font-size:12px;color:var(--amber);}
+  details{border-top:1px solid var(--line);padding-top:11px;}
+  summary{cursor:pointer;font-size:12.5px;color:var(--muted);font-weight:600;}
+  .adv{display:flex;flex-direction:column;gap:11px;padding-top:11px;}
+  .tog{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted);cursor:pointer;}
+  .tog input{accent-color:var(--lit);width:15px;height:15px;}
+  .slider{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;}
+  .slider label{font-size:13px;color:var(--muted);}
+  .slider output{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;}
+  input[type=range]{grid-column:1/3;width:100%;accent-color:var(--lit);}
+
+  /* energy */
+  .meter{display:grid;grid-template-columns:auto 1fr;gap:4px 18px;align-items:end;}
+  .big{font-family:var(--mono);font-size:44px;font-weight:600;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums;}
+  .big.saved{color:var(--green);}
+  .big .u{font-size:18px;margin-left:2px;letter-spacing:0;}
+  .now{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:20px;font-variant-numeric:tabular-nums;}
+  .lamp{width:13px;height:13px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);}
+  .lamp.on{background:var(--lit);border-color:var(--lit);box-shadow:0 0 12px var(--lit);}
+  .tot{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:12.5px;margin-top:4px;}
+  .tot span{color:var(--muted);display:inline-flex;align-items:center;gap:7px;}
+  .tot b{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;text-align:right;}
+  .chartbox{position:relative;margin-top:6px;}
+  .chartbox svg{display:block;width:100%;overflow:visible;}
+  .tip{position:absolute;pointer-events:none;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:12px;line-height:1.45;white-space:nowrap;}
+  .tip b{font-family:var(--mono);font-weight:600;}
+  .keys{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);margin-top:8px;}
+  .keys span{display:inline-flex;align-items:center;gap:6px;}
+  .keys i{width:14px;height:3px;border-radius:2px;display:inline-block;}
+
+  .metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border-radius:10px;overflow:hidden;border:1px solid var(--line);}
+  .metrics .cell{background:var(--panel);padding:11px 13px;}
+  .metrics .num{font-family:var(--mono);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;}
+  .metrics .lab{font-size:11.5px;color:var(--muted);margin-top:1px;}
+  .metrics .warn .num{color:var(--amber);}
+  .foot{font-size:12px;color:var(--faint);max-width:80ch;line-height:1.6;margin:0;}
+  .foot code{font-family:var(--mono);color:var(--muted);}
+  @media (max-width:480px){.big{font-size:36px}.clock{font-size:20px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));}}
+  @media (prefers-reduced-motion:reduce){.pill.on .dot,.lamp.on{box-shadow:none}.prog i{transition:none}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Smart Intersection</h1>
+    <span class="sub">A demand-responsive signal that stays dark until a connected car or pedestrian is in range. Pick a time of day, a run length and a speed.</span>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+      <div class="card" style="overflow:hidden">
+        <div class="status">
+          <span class="clock" id="clockTxt">21:30:00</span>
+          <span class="pill" id="phasePill"><span class="dot"></span><span id="phaseTxt">Dark · no one in range</span></span>
+          <span class="right" id="runTxt">0:00 of 10:00 simulated</span>
+        </div>
+        <div class="prog"><i id="progBar"></i></div>
+        <div class="stage">
+          <canvas id="cv" width="760" height="640" aria-label="Top-down view of a four-way intersection with cars, pedestrians and signal heads"></canvas>
+          <div class="legend">
+            <span><i class="chip" style="background:#8FA0B2"></i>vehicle</span>
+            <span><i class="chip" style="background:#E8EBEF"></i>pedestrian</span>
+            <span><i class="chip" style="background:var(--amber)"></i>near 5 mph</span>
+            <span><i class="chip" style="border:1.5px solid var(--lit);border-radius:50%"></i>connected, requesting green</span>
+            <span id="legRing" hidden><i class="chip" style="border:1px dashed var(--muted)"></i>9.87 m Bluetooth range</span>
+          </div>
+          <div class="done" id="doneBox" hidden>
+            <h2>Run complete</h2>
+            <p id="doneTxt"></p>
+            <div class="row"><button class="btn primary" id="btnAgain">Run again</button><button class="btn" id="btnExtend">Keep going</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="cell"><div class="num" id="mCars">0</div><div class="lab">vehicles through</div></div>
+        <div class="cell"><div class="num" id="mPeds">0</div><div class="lab">pedestrians crossed</div></div>
+        <div class="cell"><div class="num" id="mWakes">0</div><div class="lab">times the signal woke</div></div>
+        <div class="cell"><div class="num" id="mCarWait">0.0 s</div><div class="lab">avg vehicle wait</div></div>
+        <div class="cell"><div class="num" id="mPedWait">0.0 s</div><div class="lab">avg pedestrian wait</div></div>
+        <div class="cell warn"><div class="num" id="mMiss">0</div><div class="lab">misclassified (car vs. walker)</div></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card pad planner">
+        <div class="field">
+          <span class="lbl">Start time</span>
+          <div class="row">
+            <input type="time" id="inStart" value="21:30" step="60" aria-label="Start time of day">
+            <div class="seg" id="segPreset">
+              <button data-t="07:45">Morning rush</button>
+              <button data-t="12:30">Midday</button>
+              <button data-t="17:15">Evening rush</button>
+              <button data-t="02:00">Late night</button>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <span class="lbl">Run length</span>
+          <div class="seg" id="segDur">
+            <button data-v="60">1 min</button>
+            <button data-v="600" aria-pressed="true">10 min</button>
+            <button data-v="3600">1 hr</button>
+            <button data-v="21600">6 hr</button>
+            <button data-v="86400">24 hr</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="lbl">Street type</span>
+          <div class="seg" id="segLevel">
+            <button data-v="quiet">Quiet side street</button>
+            <button data-v="neighborhood" aria-pressed="true">Neighborhood</button>
+            <button data-v="downtown">Downtown</button>
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="btnStart">Start new run</button>
+          <button class="btn" id="btnPlay">Pause</button>
+          <button class="btn" id="btnSkip">Skip to end</button>
+          <span class="dirty" id="dirtyTxt" hidden>Start a new run to apply these settings.</span>
+        </div>
+        <div class="field">
+          <span class="lbl">Speed <span class="hint" style="text-transform:none;letter-spacing:0;font-weight:400">· changes the current run right away</span></span>
+          <div class="seg" id="segSpeed">
+            <button data-v="1" aria-pressed="true">1×<small>real time</small></button>
+            <button data-v="5">5×</button>
+            <button data-v="30">30×</button>
+            <button data-v="120">120×</button>
+            <button data-v="600">600×</button>
+          </div>
+        </div>
+        <details>
+          <summary>Model settings</summary>
+          <div class="adv">
+            <div class="field">
+              <span class="lbl">Signal model</span>
+              <div class="seg" id="segMode">
+                <button data-v="ideal" aria-pressed="true">Ideal connected signal</button>
+                <button data-v="prototype">Measured prototype</button>
+              </div>
+              <span class="hint" id="modeHint">Every road user shares position and speed, so the signal wakes and turns green before they arrive.</span>
+            </div>
+            <div class="slider"><label for="sWatt">LED head wattage</label><output id="oWatt">10 W</output><input type="range" id="sWatt" min="6" max="22" step="1" value="10"></div>
+            <label class="tog"><input type="checkbox" id="tDay" checked>Traffic follows the time of day</label>
+            <label class="tog"><input type="checkbox" id="tEdge">Include walkers and cars moving near 5 mph</label>
+            <label class="tog"><input type="checkbox" id="tNoise">Add measured GPS speed noise</label>
+          </div>
+        </details>
+      </div>
+
+      <div class="card pad">
+        <div class="meter">
+          <span class="lbl">Energy saved</span><span class="lbl">Signal draw now</span>
+          <span class="big saved" id="savedPct">0<span class="u">%</span></span>
+          <span class="now"><span class="lamp" id="lamp"></span><span id="nowW">0 W</span><span class="hint" id="nowOf">of 80 W</span></span>
+        </div>
+        <div class="tot">
+          <span><i class="chip" style="background:var(--conv)"></i>Always-on signal</span><b id="convVal">0 Wh</b>
+          <span><i class="chip" style="background:var(--smart)"></i>Smart signal</span><b id="smartVal">0 Wh</b>
+        </div>
+        <div class="chartbox" id="chartBox">
+          <svg id="chart" role="img" aria-label="Cumulative energy over the run for the always-on and smart signals, with the share of each interval the smart signal was lit"></svg>
+          <div class="tip" id="tip" hidden></div>
+        </div>
+        <div class="keys">
+          <span><i style="background:var(--conv)"></i>Always-on, cumulative Wh</span>
+          <span><i style="background:var(--smart)"></i>Smart, cumulative Wh</span>
+          <span><i style="background:var(--smart);height:8px;width:8px;opacity:.7"></i>Share of each interval lit</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">
+    The ideal connected signal follows the original idea without the prototype's hardware limits. Every car and pedestrian shares position and speed, as in the 2024 GPS + MQTT design. The signal wakes about <code>7 s</code> before a car reaches the stop line (<code>4 s</code> before a walker reaches the curb), so the approach is already green when they arrive. Green stays on while more traffic keeps arriving from that direction, for up to <code>20 s</code> if someone is waiting on the cross street. Walkers and drivers are told apart by speed, using the <code>2.2352 m/s</code> (5 mph) cutoff. The measured prototype setting uses your trial results instead: the Bluetooth connection at <code>9.87 m</code>, release at <code>13.35 m</code>, a fixed green, and GPS speed noise of about 0.1 m/s walking and 0.5 m/s driving. Only the direction with someone waiting gets a green, and a waiting pedestrian always gets a full walk. Energy counts lamp power only: eight LED heads at the wattage above. A conventional signal draws that around the clock, so savings track how long the smart signal stays dark. Traffic volumes are illustrative curves with morning and evening peaks, not counts from a real intersection.
+  </p>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+// ---------- constants from the papers ----------
+const CONNECT_M=9.87, DISCONNECT_M=13.35, THRESH=2.2352;
+const G_BASE=5, G_PED=6, YEL=2, ALLRED=1;
+// ideal connected signal: wake ahead of arrival, extend green while traffic keeps coming
+const LEAD=7, LEAD_PED=4, G_MIN=4, G_MAX=20, WAKE=1, EXTEND_ETA=3;
+let mode='ideal';
+const HEADS=8;
+const NOISE_WALK=0.10, NOISE_DRIVE=0.50;
+const LEVELS={ quiet:{veh:0.10,ped:0.04,name:'Quiet side street'},
+               neighborhood:{veh:0.35,ped:0.12,name:'Neighborhood'},
+               downtown:{veh:0.85,ped:0.35,name:'Downtown'} };
+
+// ---------- geometry (metres, centre origin, y-down = south) ----------
+const LANE_W=3.2, BOX=2*LANE_W, IN=LANE_W/2, OUT=LANE_W*1.5;
+const SP=110, EX=38, CARLEN=4.4, CARW=2.0, GAP=1.6, CW=BOX+1.4, STOPD=CW+1.4;  // stop line sits behind the crosswalk
+
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=760,H=640,M2PX=1,cx=0,cy=0;
+function resize(){
+  const cssW=cv.parentElement.clientWidth, cssH=Math.round(cssW*640/760);
+  const DPR=Math.min(window.devicePixelRatio||1,2);
+  cv.width=cssW*DPR; cv.height=cssH*DPR; cv.style.height=cssH+'px';
+  W=cssW;H=cssH;cx=W/2;cy=H/2; M2PX=Math.min(W,H)/(2*30);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  chartDirty=true;
+}
+window.addEventListener('resize',resize);
+const mx=m=>cx+m*M2PX, my=m=>cy+m*M2PX;
+
+// ---------- paths ----------
+const GROUP={S:'NS',N:'NS',W:'EW',E:'EW'};
+function arc(cxm,cym,r,a0,a1,n){const p=[];for(let i=0;i<=n;i++){const a=a0+(a1-a0)*i/n;p.push({x:cxm+r*Math.cos(a),y:cym+r*Math.sin(a)});}return p;}
+function buildPath(app,lane,mv){
+  const off=lane==='in'?IN:OUT; let pts;
+  if(app==='S') pts= mv==='straight'?[{x:off,y:SP},{x:off,y:-EX}]:[{x:OUT,y:SP},{x:OUT,y:BOX},...arc(BOX,BOX,BOX-OUT,Math.PI,Math.PI*1.5,6),{x:BOX,y:OUT},{x:EX,y:OUT}];
+  else if(app==='N') pts= mv==='straight'?[{x:-off,y:-SP},{x:-off,y:EX}]:[{x:-OUT,y:-SP},{x:-OUT,y:-BOX},...arc(-BOX,-BOX,BOX-OUT,0,Math.PI*0.5,6),{x:-BOX,y:-OUT},{x:-EX,y:-OUT}];
+  else if(app==='W') pts= mv==='straight'?[{x:-SP,y:off},{x:EX,y:off}]:[{x:-SP,y:OUT},{x:-BOX,y:OUT},...arc(-BOX,BOX,BOX-OUT,Math.PI*1.5,Math.PI*2,6),{x:-OUT,y:BOX},{x:-OUT,y:EX}];
+  else pts= mv==='straight'?[{x:SP,y:-off},{x:-EX,y:-off}]:[{x:SP,y:-OUT},{x:BOX,y:-OUT},...arc(BOX,-BOX,BOX-OUT,Math.PI*0.5,Math.PI,6),{x:OUT,y:-BOX},{x:OUT,y:-EX}];
+  const cum=[0],dir=[];
+  for(let i=1;i<pts.length;i++){const dx=pts[i].x-pts[i-1].x,dy=pts[i].y-pts[i-1].y,d=Math.hypot(dx,dy);cum.push(cum[i-1]+d);dir.push({x:dx/d,y:dy/d});}
+  const len=cum[cum.length-1], sStop=SP-STOPD;   // where the front bumper meets the stop line
+  return {pts,cum,dir,len,sStop};
+}
+function posAt(path,s){
+  s=Math.max(0,Math.min(path.len,s));
+  let i=1; while(i<path.cum.length-1 && path.cum[i]<s) i++;
+  const seg=i-1, t=(s-path.cum[seg])/((path.cum[i]-path.cum[seg])||1), a=path.pts[seg], b=path.pts[i];
+  return {x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t, hx:path.dir[seg].x, hy:path.dir[seg].y};
+}
+
+// ---------- run + sim state ----------
+const NB=120;                         // chart intervals per run
+let run, cars, peds, simTime, awakeTime, ctrl, bins, binAwake, stats;
+let running=true, speed=1, lampW=10, dayPattern=true, edgeCases=false, applyNoise=false;
+let pending={start:'21:30', dur:600, level:'neighborhood'};
+let skipping=false, chartDirty=true;
+
+function parseHM(s){const [h,m]=s.split(':').map(Number);return (h||0)*3600+(m||0)*60;}
+function newRun(){
+  run={startSec:parseHM(pending.start), durSec:pending.dur, level:pending.level, done:false};
+  cars=[];peds=[];simTime=0;awakeTime=0;bins=[];binAwake=0;
+  stats={cars:0,peds:0,carWait:0,pedWait:0,miss:0,wakes:0};
+  ctrl={phase:null,sub:null,t:0,gdur:G_BASE};
+  $('doneBox').hidden=true; setDirty(); chartDirty=true;
+}
+function clockSec(){return run.startSec+simTime;}
+function hourOfDay(){return (clockSec()/3600)%24;}
+function dayMult(h){
+  if(!dayPattern) return 1;
+  const m=Math.exp(-Math.pow(h-8,2)/3), e=Math.exp(-Math.pow(h-17.5,2)/3.5);
+  return Math.max(0.02, 0.06+0.7*Math.max(m,e)+0.24*Math.exp(-Math.pow(h-13,2)/10)-0.04*Math.exp(-Math.pow(h-3.5,2)/4));
+}
+function gauss(sd){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return sd*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+
+// ---------- spawning ----------
+const APPS=['S','N','W','E'];
+const VEHCOLORS=['#8FA0B2','#9EACBB','#6E8B87','#B6A98B','#8A7E9B','#647A8D','#A7B1BC','#7F9AA6'];
+function spawnCar(){
+  const app=APPS[(Math.random()*4)|0], lane=Math.random()<0.5?'in':'out';
+  const mv=(lane==='out'&&Math.random()<0.28)?'right':'straight';
+  for(const c of cars) if(!c.exited&&c.app===app&&c.lane===lane&&c.s<CARLEN+GAP) return;
+  const path=buildPath(app,lane,mv);
+  let type,ts;
+  if(edgeCases&&Math.random()<0.2){type='amb';ts=1.7+Math.random()*1.1;} else {type='veh';ts=7+Math.random()*5;}
+  const noisy=applyNoise?ts+gauss(ts<3?NOISE_WALK:NOISE_DRIVE):ts;
+  cars.push({app,lane,mv,path,s:0,speed:ts,type,trueClass:ts<THRESH?'ped':'car',repClass:noisy<THRESH?'ped':'car',
+    group:GROUP[app],color:VEHCOLORS[(Math.random()*VEHCOLORS.length)|0],sensed:false,reqAt:null,committed:false,wait:0,missCounted:false,exited:false,
+    fx:0,fy:0,hx:0,hy:0,px:0,py:0});
+}
+function spawnPed(){
+  const leg=APPS[(Math.random()*4)|0], dir=Math.random()<0.5?1:-1;
+  const lat=(Math.random()<0.5?-1:1)*(1.0+Math.random()*1.3);
+  let cnt=0; for(const p of peds) if(!p.exited&&p.leg===leg&&!p.crossing) cnt++;
+  if(cnt>4) return;
+  let type,ts;
+  if(edgeCases&&Math.random()<0.15){type='amb';ts=1.7+Math.random()*1.1;} else {type='ped';ts=0.8+Math.random()*0.7;}
+  const noisy=applyNoise?ts+gauss(NOISE_WALK):ts;
+  const phase=(leg==='N'||leg==='S')?'EW':'NS';
+  // ideal: walkers appear down the sidewalk and are tracked on approach; prototype: they appear at the curb
+  const appr=mode==='ideal'?6+Math.random()*8:0;
+  peds.push({leg,dir,lat,speed:ts,type,phase,trueClass:ts<THRESH?'ped':'car',repClass:noisy<THRESH?'ped':'car',
+    appr,prog:0,crossing:false,wait:0,reqAt:appr>0?null:simTime,missCounted:false,exited:false});
+}
+function spawn(dt){
+  const lv=LEVELS[run.level], m=dayMult(hourOfDay());
+  if(Math.random()<lv.veh*m*dt) spawnCar();
+  if(Math.random()<lv.ped*m*dt) spawnPed();
+}
+
+// ---------- controller ----------
+const carEta=c=>(c.path.sStop-c.s-CARLEN*0.5)/c.speed;
+// a road user "requests" green: ideal = arriving within the lead time; prototype = inside Bluetooth range
+function carReq(c){ if(c.exited||c.committed) return false; return mode==='ideal'?carEta(c)<=LEAD:c.sensed; }
+function pedReq(p){ if(p.exited||p.crossing) return false; return mode==='ideal'?p.appr/p.speed<=LEAD_PED:true; }
+function waitingVeh(g){for(const c of cars) if(c.group===g&&carReq(c)) return true;return false;}
+function waitingPed(g){for(const p of peds) if(p.phase===g&&pedReq(p)) return true;return false;}
+function demand(g){return waitingVeh(g)||waitingPed(g);}
+function earliestGroup(){
+  let best=null,bt=Infinity;
+  for(const c of cars) if(c.reqAt!==null&&carReq(c)&&c.reqAt<bt){bt=c.reqAt;best=c.group;}
+  for(const p of peds) if(p.reqAt!==null&&pedReq(p)&&p.reqAt<bt){bt=p.reqAt;best=p.phase;}
+  return best;
+}
+function hasPedDemand(g){for(const p of peds) if(p.phase===g&&pedReq(p)&&p.repClass==='ped') return true;return false;}
+function arrivingSoon(g){for(const c of cars) if(c.group===g&&!c.exited&&!c.committed&&carEta(c)<=EXTEND_ETA) return true;return false;}
+function startPhase(g){
+  ctrl.phase=g;ctrl.sub='green';ctrl.t=0;ctrl.gdur=hasPedDemand(g)?G_PED:(mode==='ideal'?G_MIN:G_BASE);
+  for(const c of cars) if(c.group===g&&carReq(c)&&!c.missCounted&&c.trueClass!==c.repClass){stats.miss++;c.missCounted=true;}
+  for(const p of peds) if(p.phase===g&&pedReq(p)&&!p.missCounted&&p.trueClass!==p.repClass){stats.miss++;p.missCounted=true;}
+}
+function stepCtrl(dt){
+  if(ctrl.phase===null){ const g=earliestGroup();
+    if(g){ stats.wakes++; if(mode==='ideal'){ctrl.phase=g;ctrl.sub='wake';ctrl.t=0;} else startPhase(g); }
+    return; }
+  ctrl.t+=dt;
+  if(ctrl.sub==='wake'){ if(ctrl.t>=WAKE&&boxClear()) startPhase(ctrl.phase); }
+  else if(ctrl.sub==='green'){
+    if(ctrl.t>=ctrl.gdur){
+      const other=ctrl.phase==='NS'?'EW':'NS';
+      const hold=mode==='ideal'&&arrivingSoon(ctrl.phase)&&(!demand(other)||ctrl.t<G_MAX);
+      if(!hold){ctrl.sub='yellow';ctrl.t=0;}
+    }
+  }
+  else if(ctrl.sub==='yellow'){ if(ctrl.t>=YEL){ctrl.sub='allred';ctrl.t=0;} }
+  else if(ctrl.t>=ALLRED&&boxClear()){
+    const other=ctrl.phase==='NS'?'EW':'NS';
+    if(demand(other)) startPhase(other);
+    else if(demand(ctrl.phase)) startPhase(ctrl.phase);
+    else {ctrl.phase=null;ctrl.sub=null;}
+  }
+}
+function vehSignal(g){ if(ctrl.phase!==g) return ctrl.phase===null?'off':'red'; return ctrl.sub==='green'?'green':ctrl.sub==='yellow'?'amber':'red'; }
+const vehGo=g=>ctrl.phase===g&&ctrl.sub==='green';
+// walk is shown only during the first (minimum) part of green; nobody starts crossing after that
+const pedWalk=ph=>ctrl.phase===ph&&ctrl.sub==='green'&&ctrl.t<ctrl.gdur;
+// intersection box occupancy: the signal holds all-red until the box is empty
+const inBox=c=>!c.exited&&c.committed&&Math.max(Math.abs(c.px),Math.abs(c.py))<STOPD;
+function crossInBox(g){for(const c of cars) if(c.group!==g&&inBox(c)) return true;return false;}
+function boxClear(){for(const c of cars) if(inBox(c)) return false; for(const p of peds) if(p.crossing&&!p.exited) return false; return true;}
+
+// ---------- movement ----------
+function pedEnds(p){
+  if(p.leg==='N') return {ax:p.dir>0?-CW:CW,ay:-CW+p.lat,bx:p.dir>0?CW:-CW,by:-CW+p.lat};
+  if(p.leg==='S') return {ax:p.dir>0?-CW:CW,ay:CW+p.lat,bx:p.dir>0?CW:-CW,by:CW+p.lat};
+  if(p.leg==='E') return {ax:CW+p.lat,ay:p.dir>0?-CW:CW,bx:CW+p.lat,by:p.dir>0?CW:-CW};
+  return {ax:-CW+p.lat,ay:p.dir>0?-CW:CW,bx:-CW+p.lat,by:p.dir>0?CW:-CW};
+}
+const OUTWARD={N:{x:0,y:-1},S:{x:0,y:1},E:{x:1,y:0},W:{x:-1,y:0}};
+function pedWorld(p){const e=pedEnds(p);
+  if(!p.crossing&&p.appr>0){const o=OUTWARD[p.leg];return {x:e.ax+o.x*p.appr,y:e.ay+o.y*p.appr};}
+  return {x:e.ax+(e.bx-e.ax)*p.prog,y:e.ay+(e.by-e.ay)*p.prog};}
+function stepCars(dt){
+  for(const c of cars){ if(c.exited) continue;
+    const p=posAt(c.path,c.s), f=posAt(c.path,c.s+CARLEN*0.5);
+    c.px=p.x;c.py=p.y;c.fx=f.x;c.fy=f.y;c.hx=f.hx;c.hy=f.hy;
+    const d=Math.hypot(p.x,p.y);
+    if(!c.sensed&&d<=CONNECT_M) c.sensed=true;
+    else if(c.sensed&&c.committed&&d>DISCONNECT_M) c.sensed=false;
+    if(c.reqAt===null&&carReq(c)) c.reqAt=simTime;
+  }
+  let walking=null;
+  for(const c of cars){ if(c.exited) continue;
+    if(c.s+CARLEN*0.5>=c.path.sStop-0.01) c.committed=true;
+    let allowed=c.s+c.speed*dt;
+    if(!c.committed&&(!vehGo(c.group)||crossInBox(c.group))) allowed=Math.min(allowed,c.path.sStop-CARLEN*0.5-0.2);
+    let limit=Infinity;
+    for(const o of cars){ if(o===c||o.exited) continue;
+      const dx=o.fx-c.fx, dy=o.fy-c.fy;
+      if(dx>12||dx<-12||dy>12||dy<-12) continue;
+      const proj=dx*c.hx+dy*c.hy; if(proj<=0||proj>12) continue;
+      if(Math.abs(-dx*c.hy+dy*c.hx)>2.0) continue;
+      limit=Math.min(limit,c.s+Math.max(0,proj-(CARLEN+GAP)));
+    }
+    {
+      if(!walking) walking=peds.filter(p=>p.crossing&&!p.exited).map(pedWorld);
+      for(const w of walking){ const dx=w.x-c.fx,dy=w.y-c.fy, proj=dx*c.hx+dy*c.hy, lat=Math.abs(-dx*c.hy+dy*c.hx);
+        if(proj>0&&proj<7&&lat<2.2) limit=Math.min(limit,c.s+Math.max(0,proj-2.4)); }
+    }
+    allowed=Math.min(allowed,limit);
+    if(allowed-c.s<c.speed*dt*0.2&&!c.committed) c.wait+=dt;
+    c.s=Math.max(c.s,allowed);
+    if(c.s>=c.path.len-0.05){c.exited=true;stats.cars++;stats.carWait+=c.wait;}
+  }
+}
+function stepPeds(dt){
+  const span=2*CW;
+  for(const p of peds){ if(p.exited) continue;
+    if(!p.crossing){
+      if(p.appr>0){ p.appr=Math.max(0,p.appr-p.speed*dt); if(p.reqAt===null&&pedReq(p)) p.reqAt=simTime; if(p.appr>0) continue; }
+      if(p.reqAt===null) p.reqAt=simTime;
+      if(pedWalk(p.phase)) p.crossing=true; else {p.wait+=dt;continue;}
+    }
+    p.prog+=(p.speed*dt)/span;
+    if(p.prog>=1){p.exited=true;stats.peds++;stats.pedWait+=p.wait;}
+  }
+}
+let gcCount=0;
+function update(dt){
+  simTime+=dt; spawn(dt); stepCtrl(dt); stepCars(dt); stepPeds(dt);
+  if(ctrl.phase!==null){awakeTime+=dt;binAwake+=dt;}
+  const binSize=run.durSec/NB;
+  while(bins.length<NB && simTime>=(bins.length+1)*binSize-1e-6){
+    bins.push({t:(bins.length+1)*binSize, awake:awakeTime, lit:Math.min(1,binAwake/binSize)}); binAwake=0; chartDirty=true;
+  }
+  if(++gcCount>200){gcCount=0;cars=cars.filter(c=>!c.exited);peds=peds.filter(p=>!p.exited);}
+}
+
+// ---------- energy helpers ----------
+const fullW=()=>lampW*HEADS;
+const wh=sec=>fullW()*sec/3600;
+function fmtWh(w){ if(w>=1000) return (w/1000).toFixed(2)+' kWh'; if(w>=100) return w.toFixed(0)+' Wh'; if(w>=10) return w.toFixed(1)+' Wh'; return w.toFixed(2)+' Wh'; }
+function fmtDur(s){ s=Math.round(s); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60;
+  return h?`${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}`:`${m}:${String(x).padStart(2,'0')}`; }
+function fmtClock(sec,withSec){ sec=((sec%86400)+86400)%86400; const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s=Math.floor(sec%60);
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+(withSec?':'+String(s).padStart(2,'0'):''); }
+
+// ---------- rendering: scene ----------
+function shade(hex,amt){const n=parseInt(hex.slice(1),16);let r=(n>>16)&255,g=(n>>8)&255,b=n&255;r+=amt*255;g+=amt*255;b+=amt*255;const c=v=>Math.max(0,Math.min(255,v))|0;return`rgb(${c(r)},${c(g)},${c(b)})`;}
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function line(x0,y0,x1,y1){ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.stroke();}
+function nightAmt(h){ if(h>=7&&h<=18) return 0; if(h<5||h>20) return 1; return h<7?(7-h)/2:(h-18)/2; }
+function draw(){
+  const na=nightAmt(hourOfDay());
+  ctx.fillStyle=shade('#2C323A',-na*0.07); ctx.fillRect(0,0,W,H);
+  const rw=BOX*2*M2PX;
+  ctx.fillStyle=shade('#1A1E24',-na*0.05); ctx.fillRect(0,cy-rw/2,W,rw); ctx.fillRect(cx-rw/2,0,rw,H);
+  ctx.setLineDash([13,13]); ctx.strokeStyle=`rgba(220,225,232,${0.32*(1-na*0.4)})`; ctx.lineWidth=1.6;
+  const ld=(OUT+IN)/2;
+  line(mx(ld),0,mx(ld),H); line(mx(-ld),0,mx(-ld),H); line(0,my(ld),W,my(ld)); line(0,my(-ld),W,my(-ld));
+  ctx.setLineDash([]);
+  ctx.strokeStyle=`rgba(214,178,74,${0.7*(1-na*0.3)})`;
+  line(mx(-0.4),0,mx(-0.4),H); line(mx(0.4),0,mx(0.4),H); line(0,my(-0.4),W,my(-0.4)); line(0,my(0.4),W,my(0.4));
+  ['S','N','W','E'].forEach(drawLeg);
+
+  const awake=ctrl.phase!==null;
+  if(mode==='prototype'){
+    ctx.setLineDash([6,7]);
+    ctx.strokeStyle=awake?'rgba(63,182,245,.85)':'rgba(130,142,156,.5)'; ctx.lineWidth=awake?2:1.3;
+    ctx.beginPath(); ctx.arc(cx,cy,CONNECT_M*M2PX,0,7); ctx.stroke();
+    ctx.strokeStyle='rgba(130,142,156,.22)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(cx,cy,DISCONNECT_M*M2PX,0,7); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  for(const p of peds){ if(p.exited) continue; const w=pedWorld(p), px=mx(w.x), py=my(w.y);
+    ctx.fillStyle=p.type==='amb'?'#F5A623':(na>0.3?'#F0F3F6':'#DCE2E8'); ctx.beginPath(); ctx.arc(px,py,0.85*M2PX,0,7); ctx.fill();
+    if(pedReq(p)&&p.reqAt!==null){ctx.strokeStyle='rgba(63,182,245,.7)';ctx.lineWidth=1.3;ctx.beginPath();ctx.arc(px,py,1.6*M2PX,0,7);ctx.stroke();} }
+  for(const c of cars){ if(c.exited) continue;
+    const p=posAt(c.path,c.s), px=mx(p.x), py=my(p.y);
+    ctx.save(); ctx.translate(px,py); ctx.rotate(Math.atan2(p.hy,p.hx));
+    const L=CARLEN*M2PX, Wd=CARW*M2PX;
+    ctx.fillStyle=c.type==='amb'?'#F5A623':shade(c.color,-na*0.12); roundRect(-L/2,-Wd/2,L,Wd,2.3); ctx.fill();
+    ctx.fillStyle='rgba(20,26,32,.5)'; roundRect(L*0.02,-Wd/2+2,L*0.28,Wd-4,2); ctx.fill();
+    ctx.fillStyle=`rgba(255,244,200,${0.35+na*0.65})`; ctx.beginPath();ctx.arc(L/2-1,-Wd/2+2,1.4,0,7);ctx.arc(L/2-1,Wd/2-2,1.4,0,7);ctx.fill();
+    if(na>0.2){const gg=ctx.createRadialGradient(L/2+6,0,0,L/2+6,0,16);gg.addColorStop(0,`rgba(255,244,200,${0.12*na})`);gg.addColorStop(1,'rgba(255,244,200,0)');ctx.fillStyle=gg;ctx.fillRect(L/2,-14,26,28);}
+    ctx.fillStyle=`rgba(229,67,59,${0.5+na*0.4})`; ctx.beginPath();ctx.arc(-L/2+1,-Wd/2+2,1.1,0,7);ctx.arc(-L/2+1,Wd/2-2,1.1,0,7);ctx.fill();
+    ctx.restore();
+    if(carReq(c)){ctx.strokeStyle='rgba(63,182,245,.7)';ctx.lineWidth=1.4;ctx.beginPath();ctx.arc(px,py,CARLEN*0.6*M2PX,0,7);ctx.stroke();}
+  }
+  drawWalk(mx(0),my(-CW-0.6),pedWalk('EW'),awake); drawWalk(mx(0),my(CW+0.6),pedWalk('EW'),awake);
+  drawWalk(mx(CW+0.6),my(0),pedWalk('NS'),awake); drawWalk(mx(-CW-0.6),my(0),pedWalk('NS'),awake);
+  const v=ctx.createRadialGradient(cx,cy,Math.min(W,H)*0.35,cx,cy,Math.max(W,H)*0.72);
+  v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,`rgba(0,0,0,${0.3+na*0.3})`); ctx.fillStyle=v; ctx.fillRect(0,0,W,H);
+
+  // signal heads: one per approach, on the driver's right just before the stop line.
+  // North-south heads hang vertically, east-west heads horizontally, each labeled with its direction of travel.
+  const g=10, V=headSize(false), Hz=headSize(true);
+  let x,y;
+  x=mx(BOX)+g; y=my(STOPD)+g;              drawHead(x,y,vehSignal('NS'),false); tag('↑ Northbound',x,y+V.h+15,'left');
+  x=mx(-BOX)-g-V.w; y=my(-STOPD)-g-V.h;      drawHead(x,y,vehSignal('NS'),false); tag('Southbound ↓',x+V.w,y-8,'right');
+  x=mx(-STOPD)-g-Hz.w; y=my(BOX)+g;        drawHead(x,y,vehSignal('EW'),true);  tag('Eastbound →',x+Hz.w,y+Hz.h+15,'right');
+  x=mx(STOPD)+g; y=my(-BOX)-g-Hz.h;          drawHead(x,y,vehSignal('EW'),true);  tag('← Westbound',x,y-8,'left');
+  // compass
+  ctx.font='600 11px Overpass, system-ui, sans-serif'; ctx.textAlign='center'; ctx.fillStyle='rgba(233,236,239,.75)';
+  ctx.fillText('N',W-22,22); ctx.strokeStyle='rgba(233,236,239,.75)'; ctx.lineWidth=1.5; line(W-22,44,W-22,28); line(W-22,28,W-26,33); line(W-22,28,W-18,33);
+}
+const SIGCOL={green:'rgba(53,196,106,.95)',amber:'rgba(245,166,35,.95)',red:'rgba(229,67,59,.9)',off:'rgba(232,237,242,.45)'};
+function drawLeg(app){
+  // stop bar takes the color of the signal for that approach
+  ctx.fillStyle=SIGCOL[vehSignal(GROUP[app])];
+  if(app==='S'){ctx.fillRect(mx(0),my(STOPD)-2,mx(BOX)-mx(0),4);zebra('x',my(CW));}
+  if(app==='N'){ctx.fillRect(mx(-BOX),my(-STOPD)-2,mx(0)-mx(-BOX),4);zebra('x',my(-CW));}
+  if(app==='W'){ctx.fillRect(mx(-STOPD)-2,my(0),4,my(BOX)-my(0));zebra('y',mx(-CW));}
+  if(app==='E'){ctx.fillRect(mx(STOPD)-2,my(-BOX),4,my(0)-my(-BOX));zebra('y',mx(CW));}
+}
+function zebra(axis,at){ ctx.fillStyle='rgba(232,237,242,.42)'; const n=6,w=BOX*2*M2PX/n;
+  for(let i=0;i<n;i++){ if(axis==='x') ctx.fillRect(mx(-BOX)+(i+0.15)*w,at-9,w*0.6,18); else ctx.fillRect(at-9,my(-BOX)+(i+0.15)*w,18,w*0.6); } }
+const HR=6.5, HSP=17, HPAD=5;
+function headSize(horiz){const long=2*HSP+2*HR+2*HPAD, short=2*HR+2*HPAD; return horiz?{w:long,h:short}:{w:short,h:long};}
+function drawHead(x,y,state,horiz){
+  const s=headSize(horiz);
+  ctx.fillStyle='#0C0F13';ctx.strokeStyle='#3A424D';ctx.lineWidth=1.4; roundRect(x,y,s.w,s.h,5);ctx.fill();ctx.stroke();
+  const cols={red:'#E5433B',amber:'#F5A623',green:'#35C46A'};
+  ['red','amber','green'].forEach((lc,i)=>{ const on=state===lc;
+    const lx=horiz?x+HPAD+HR+i*HSP:x+s.w/2, ly=horiz?y+s.h/2:y+HPAD+HR+i*HSP;
+    ctx.beginPath();ctx.arc(lx,ly,HR,0,7);
+    ctx.fillStyle=on?cols[lc]:shade(cols[lc],-0.76);ctx.fill(); if(on){ctx.shadowColor=cols[lc];ctx.shadowBlur=13;ctx.fill();ctx.shadowBlur=0;} });
+}
+function tag(text,x,y,align){
+  ctx.font='600 11px Overpass, system-ui, sans-serif'; ctx.textAlign=align; ctx.textBaseline='alphabetic';
+  const w=ctx.measureText(text).width, bx=align==='right'?x-w-6:x-6;
+  ctx.fillStyle='rgba(8,10,13,.72)'; roundRect(bx,y-12,w+12,17,4); ctx.fill();
+  ctx.fillStyle='#E9ECEF'; ctx.fillText(text,x,y);
+}
+function drawWalk(x,y,walk,awake){
+  ctx.beginPath();ctx.arc(x,y,5,0,7);
+  ctx.fillStyle=walk?'#35C46A':awake?shade('#E5433B',-0.3):'#2A2F36'; ctx.fill();
+  if(walk){ctx.shadowColor='#35C46A';ctx.shadowBlur=10;ctx.fill();ctx.shadowBlur=0;}
+}
+
+// ---------- rendering: energy chart ----------
+const svg=document.getElementById('chart'), tip=document.getElementById('tip'), box=document.getElementById('chartBox');
+let hoverIdx=null;
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+function pts(){ // completed bins plus a live point
+  const out=[{t:0,awake:0,lit:0}].concat(bins);
+  if(!run.done && simTime>out[out.length-1].t) out.push({t:simTime,awake:awakeTime,lit:null});
+  return out;
+}
+function renderChart(){
+  const w=box.clientWidth; if(!w) return;
+  const h=210, padL=46, padR=74, padT=10, lineH=118, gapH=26, stripH=38;
+  const iw=w-padL-padR, maxWh=wh(run.durSec);
+  const X=t=>padL+iw*t/run.durSec, Y=v=>padT+lineH-lineH*(maxWh?v/maxWh:0);
+  const sTop=padT+lineH+gapH, SY=f=>sTop+stripH-stripH*f;
+  const ink=css('--ink'), muted=css('--muted'), faint=css('--faint'), grid=css('--line'), conv=css('--conv'), smart=css('--smart');
+  const P=pts();
+  let s='';
+  // grid + y labels (0, half, full run total)
+  [0,0.5,1].forEach(f=>{ const y=Y(maxWh*f); s+=`<line x1="${padL}" x2="${padL+iw}" y1="${y}" y2="${y}" stroke="${grid}" stroke-width="1"/>`;
+    s+=`<text x="${padL-7}" y="${y+4}" text-anchor="end" font-size="10.5" fill="${muted}" font-family="Overpass Mono, monospace">${fmtWh(maxWh*f).replace(' ',' ')}</text>`; });
+  // lines
+  const convD=P.map((p,i)=>(i?'L':'M')+X(p.t).toFixed(1)+' '+Y(wh(p.t)).toFixed(1)).join('');
+  const smD=P.map((p,i)=>(i?'L':'M')+X(p.t).toFixed(1)+' '+Y(wh(p.awake)).toFixed(1)).join('');
+  const last=P[P.length-1];
+  s+=`<path d="${smD}L${X(last.t).toFixed(1)} ${Y(0)}L${X(0)} ${Y(0)}Z" fill="${smart}" fill-opacity=".14"/>`;
+  s+=`<path d="${convD}" fill="none" stroke="${conv}" stroke-width="2" stroke-linejoin="round"/>`;
+  s+=`<path d="${smD}" fill="none" stroke="${smart}" stroke-width="2" stroke-linejoin="round"/>`;
+  if(last.t>0){
+    const yc=Y(wh(last.t)), ys=Y(wh(last.awake));
+    let lc=yc, ls=ys; if(ls-lc<14){ ls=lc+14; }
+    s+=`<circle cx="${X(last.t)}" cy="${yc}" r="4" fill="${conv}" stroke="${css('--panel')}" stroke-width="2"/>`;
+    s+=`<circle cx="${X(last.t)}" cy="${ys}" r="4" fill="${smart}" stroke="${css('--panel')}" stroke-width="2"/>`;
+    const lx=X(last.t)+9;
+    s+=`<text x="${lx}" y="${lc+4}" font-size="11" fill="${ink}" font-weight="600">Always-on</text>`;
+    s+=`<text x="${lx}" y="${Math.min(ls+4,padT+lineH+4)}" font-size="11" fill="${ink}" font-weight="600">Smart</text>`;
+  }
+  // strip: share of each interval lit
+  s+=`<text x="${padL}" y="${sTop-7}" font-size="10.5" fill="${muted}">Share of each interval the signal was lit</text>`;
+  s+=`<line x1="${padL}" x2="${padL+iw}" y1="${SY(0)}" y2="${SY(0)}" stroke="${grid}"/>`;
+  s+=`<text x="${padL-7}" y="${SY(1)+8}" text-anchor="end" font-size="10.5" fill="${muted}" font-family="Overpass Mono, monospace">100%</text>`;
+  const bw=iw/NB;
+  bins.forEach((b,i)=>{ if(b.lit<=0) return; const x=padL+i*bw+0.5, hh=Math.max(1.5,stripH*b.lit);
+    s+=`<rect x="${x.toFixed(1)}" y="${(SY(0)-hh).toFixed(1)}" width="${Math.max(0.8,bw-1).toFixed(1)}" height="${hh.toFixed(1)}" rx="${Math.min(2,bw/3).toFixed(1)}" fill="${smart}" fill-opacity="${hoverIdx===i?1:.75}"/>`; });
+  // x labels: clock at start / middle / end
+  [0,0.5,1].forEach(f=>{ const x=padL+iw*f, anchor=f===0?'start':f===1?'end':'middle';
+    s+=`<text x="${x}" y="${h-2}" text-anchor="${anchor}" font-size="10.5" fill="${muted}" font-family="Overpass Mono, monospace">${fmtClock(run.startSec+run.durSec*f, run.durSec<=600)}</text>`; });
+  // hover crosshair
+  if(hoverIdx!==null && hoverIdx<bins.length){ const b=bins[hoverIdx], x=X(b.t);
+    s+=`<line x1="${x}" x2="${x}" y1="${padT}" y2="${SY(0)}" stroke="${faint}" stroke-dasharray="3 3"/>`;
+    s+=`<circle cx="${x}" cy="${Y(wh(b.t))}" r="4" fill="${conv}" stroke="${css('--panel')}" stroke-width="2"/>`;
+    s+=`<circle cx="${x}" cy="${Y(wh(b.awake))}" r="4" fill="${smart}" stroke="${css('--panel')}" stroke-width="2"/>`; }
+  svg.setAttribute('viewBox',`0 0 ${w} ${h}`); svg.setAttribute('height',h);
+  svg.innerHTML=s;
+  svg._geom={padL,iw,bw};
+}
+svg.addEventListener('pointermove',e=>{
+  const g=svg._geom; if(!g||!bins.length) return;
+  const r=svg.getBoundingClientRect(), x=e.clientX-r.left;
+  let i=Math.floor((x-g.padL)/g.bw); if(i<0||i>=bins.length){hoverIdx=null;tip.hidden=true;renderChart();return;}
+  hoverIdx=i; const b=bins[i], t0=b.t-run.durSec/NB;
+  tip.innerHTML=`${fmtClock(run.startSec+t0,run.durSec<=3600)}–${fmtClock(run.startSec+b.t,run.durSec<=3600)}<br>`+
+    `Always-on <b>${fmtWh(wh(b.t))}</b><br>Smart <b>${fmtWh(wh(b.awake))}</b><br>Lit <b>${Math.round(b.lit*100)}%</b> of this interval`;
+  tip.hidden=false;
+  const tw=tip.offsetWidth; let left=x+14; if(left+tw>r.width) left=x-tw-14;
+  tip.style.left=Math.max(0,left)+'px'; tip.style.top='6px';
+  renderChart();
+});
+svg.addEventListener('pointerleave',()=>{hoverIdx=null;tip.hidden=true;renderChart();});
+
+// ---------- HUD ----------
+const $=id=>document.getElementById(id);
+function set(id,v){const el=$(id); if(el.textContent!==String(v)) el.textContent=v;}
+function hud(){
+  const conv=wh(simTime), smart=wh(awakeTime), saved=conv>0?(1-smart/conv)*100:0;
+  $('savedPct').firstChild.nodeValue=saved.toFixed(0);
+  set('convVal',fmtWh(conv)); set('smartVal',fmtWh(smart));
+  const awake=ctrl.phase!==null;
+  set('nowW',(awake?fullW():0)+' W'); set('nowOf','of '+fullW()+' W');
+  $('lamp').classList.toggle('on',awake);
+  $('phasePill').classList.toggle('on',awake);
+  let ph='Dark · no one in range';
+  if(awake) ph=ctrl.sub==='wake'?'Waking · all red, '+(ctrl.phase==='NS'?'north–south':'east–west')+' next'
+    :(ctrl.phase==='NS'?'North–south':'East–west')+' · '+(ctrl.sub==='green'?'green':ctrl.sub==='yellow'?'yellow':'all red');
+  set('phaseTxt',ph);
+  set('clockTxt',fmtClock(clockSec(),true));
+  const left=Math.max(0,run.durSec-simTime);
+  set('runTxt', run.done?`Finished · ${fmtDur(run.durSec)} simulated`
+    : skipping?`Skipping ahead… ${Math.round(simTime/run.durSec*100)}%`
+    : `${fmtDur(simTime)} of ${fmtDur(run.durSec)} simulated · ${fmtDur(left/speed)} left at ${speed}×`);
+  $('progBar').style.width=(simTime/run.durSec*100).toFixed(2)+'%';
+  set('mCars',stats.cars); set('mPeds',stats.peds); set('mWakes',stats.wakes); set('mMiss',stats.miss);
+  set('mCarWait',(stats.cars?stats.carWait/stats.cars:0).toFixed(1)+' s');
+  set('mPedWait',(stats.peds?stats.pedWait/stats.peds:0).toFixed(1)+' s');
+}
+function finish(){
+  run.done=true; skipping=false; updateButtons();
+  const conv=wh(run.durSec), smart=wh(awakeTime), dark=100*(1-awakeTime/run.durSec);
+  $('doneTxt').innerHTML=`${LEVELS[run.level].name}, ${fmtClock(run.startSec)} to ${fmtClock(run.startSec+run.durSec)} (${fmtDur(run.durSec)}). `+
+    `The signal was dark <b>${dark.toFixed(0)}%</b> of the time and woke <b>${stats.wakes}</b> times. `+
+    `It used <b>${fmtWh(smart)}</b> where an always-on signal would use <b>${fmtWh(conv)}</b>, a saving of <b>${fmtWh(conv-smart)}</b>.`;
+  $('doneBox').hidden=false; chartDirty=true;
+}
+
+// ---------- loop ----------
+let last=performance.now(), lastChart=0;
+function frame(now){
+  const real=Math.min((now-last)/1000,0.1); last=now;
+  if(running&&!run.done&&!skipping){
+    const sim=Math.min(real*speed, run.durSec-simTime);
+    if(sim>0){ const steps=Math.ceil(sim/0.1), sub=sim/steps; for(let i=0;i<steps;i++) update(sub); }
+    if(simTime>=run.durSec-1e-6) finish();
+  }
+  draw(); hud();
+  if(chartDirty||now-lastChart>(speed>=30?250:1000)){ renderChart(); chartDirty=false; lastChart=now; }
+  requestAnimationFrame(frame);
+}
+function skipChunk(){
+  if(!skipping) return;
+  const t0=performance.now();
+  while(performance.now()-t0<28 && simTime<run.durSec-1e-6) update(Math.min(0.2,run.durSec-simTime));
+  if(simTime>=run.durSec-1e-6) finish(); else setTimeout(skipChunk,0);
+}
+
+// ---------- controls ----------
+function pressSeg(segId,val){ document.querySelectorAll('#'+segId+' button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===String(val)))); }
+function setDirty(){ const d=run&&(parseHM(pending.start)!==run.startSec||pending.dur!==run.durSec||pending.level!==run.level); $('dirtyTxt').hidden=!d; }
+function updateButtons(){
+  $('btnPlay').textContent=running?'Pause':'Resume';
+  $('btnPlay').disabled=run.done||skipping; $('btnSkip').disabled=run.done||skipping;
+}
+$('inStart').addEventListener('change',e=>{ if(e.target.value){pending.start=e.target.value;setDirty();} });
+document.querySelectorAll('#segPreset button').forEach(b=>b.addEventListener('click',()=>{ pending.start=b.dataset.t; $('inStart').value=b.dataset.t; setDirty(); }));
+document.querySelectorAll('#segDur button').forEach(b=>b.addEventListener('click',()=>{ pending.dur=+b.dataset.v; pressSeg('segDur',b.dataset.v); setDirty(); }));
+document.querySelectorAll('#segLevel button').forEach(b=>b.addEventListener('click',()=>{ pending.level=b.dataset.v; pressSeg('segLevel',b.dataset.v); setDirty(); }));
+document.querySelectorAll('#segSpeed button').forEach(b=>b.addEventListener('click',()=>{ speed=+b.dataset.v; pressSeg('segSpeed',b.dataset.v); last=performance.now(); }));
+$('btnStart').onclick=()=>{ skipping=false; newRun(); running=true; updateButtons(); last=performance.now(); };
+$('btnAgain').onclick=$('btnStart').onclick;
+$('btnExtend').onclick=()=>{ // continue the same day for another run length
+  const keep={cars,peds,ctrl,stats}; const nextStart=(run.startSec+run.durSec)%86400;
+  pending.start=fmtClock(nextStart); $('inStart').value=pending.start;
+  newRun(); cars=keep.cars; peds=keep.peds; ctrl=keep.ctrl; stats=keep.stats; running=true; updateButtons();
+};
+$('btnPlay').onclick=()=>{ running=!running; updateButtons(); last=performance.now(); };
+$('btnSkip').onclick=()=>{ skipping=true; updateButtons(); skipChunk(); };
+$('sWatt').oninput=e=>{ lampW=+e.target.value; $('oWatt').textContent=lampW+' W'; chartDirty=true; };
+$('tDay').onchange=e=>dayPattern=e.target.checked;
+$('tEdge').onchange=e=>edgeCases=e.target.checked;
+$('tNoise').onchange=e=>applyNoise=e.target.checked;
+const MODE_HINT={ideal:'Every road user shares position and speed, so the signal wakes and turns green before they arrive.',
+  prototype:'Uses your trial results: a 9.87 m Bluetooth range, a fixed green and GPS speed noise. Cars often reach the stop line before the light is green.'};
+document.querySelectorAll('#segMode button').forEach(b=>b.addEventListener('click',()=>{
+  mode=b.dataset.v; pressSeg('segMode',mode); $('modeHint').textContent=MODE_HINT[mode]; $('legRing').hidden=mode!=='prototype';
+  applyNoise=mode==='prototype'; $('tNoise').checked=applyNoise;
+  for(const p of peds) if(p.reqAt===null&&mode==='prototype'){p.appr=0;p.reqAt=simTime;}
+}));
+
+resize(); newRun(); updateButtons(); requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
