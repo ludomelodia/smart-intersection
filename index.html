@@ -616,12 +616,12 @@ function renderChart(){
   s+=`<path d="${smD}" fill="none" stroke="${smart}" stroke-width="2" stroke-linejoin="round"/>`;
   if(last.t>0){
     const yc=Y(wh(last.t)), ys=Y(wh(last.awake));
-    let lc=yc, ls=ys; if(ls-lc<14){ ls=lc+14; }
+    let lc=yc, ls=ys; if(ls-lc<14){ ls=Math.min(lc+14,padT+lineH); lc=ls-14; }   // keep the two end labels apart
     s+=`<circle cx="${X(last.t)}" cy="${yc}" r="4" fill="${conv}" stroke="${css('--panel')}" stroke-width="2"/>`;
     s+=`<circle cx="${X(last.t)}" cy="${ys}" r="4" fill="${smart}" stroke="${css('--panel')}" stroke-width="2"/>`;
     const lx=X(last.t)+9;
     s+=`<text x="${lx}" y="${lc+4}" font-size="11" fill="${ink}" font-weight="600">Always-on</text>`;
-    s+=`<text x="${lx}" y="${Math.min(ls+4,padT+lineH+4)}" font-size="11" fill="${ink}" font-weight="600">Smart</text>`;
+    s+=`<text x="${lx}" y="${ls+4}" font-size="11" fill="${ink}" font-weight="600">Smart</text>`;
   }
   // strip: share of each interval lit
   s+=`<text x="${padL}" y="${sTop-7}" font-size="10.5" fill="${muted}">Share of each interval the signal was lit</text>`;
